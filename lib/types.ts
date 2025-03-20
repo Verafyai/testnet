@@ -4,6 +4,8 @@ export interface Validator {
   isLeader: boolean
   lastVote: boolean | null
   lastResponse: string | null
+  voteCount?: number;
+  leaderSlots?: number;
 }
 
 export interface VoteResult {

@@ -1,29 +1,27 @@
-"use client"
+// app/page.tsx
+"use client";
 
-import { useState, useEffect, useCallback, useRef } from "react"
-import { NetworkStats } from "@/components/network-stats"
-import { VoteHistory } from "@/components/vote-history"
-import { ValidatorList } from "@/components/validator-list"
-import { BroadcastButton } from "@/components/broadcast-button"
-import type { NetworkState, VoteResult } from "@/lib/types"
-import { useToast } from "@/components/ui/use-toast"
+import { useState, useEffect, useCallback, useRef } from "react";
+import { NetworkStats } from "@/components/network-stats";
+import { VoteHistory } from "@/components/vote-history";
+import { ValidatorList } from "@/components/validator-list";
+import { BroadcastButton } from "@/components/broadcast-button";
+import type { NetworkState, VoteResult } from "@/lib/types";
+import { useToast } from "@/components/ui/use-toast";
 
 export default function Home() {
-  const [networkState, setNetworkState] = useState<NetworkState | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [autoRefresh, setAutoRefresh] = useState(false)
-  const { toast } = useToast()
-  const [refreshKey, setRefreshKey] = useState(0) // Add a refresh key to force re-fetch
+  const [networkState, setNetworkState] = useState<NetworkState | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [showAllVotes, setShowAllVotes] = useState(false); // Toggle for VoteHistory
+  const { toast } = useToast();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const voteHistoryRef = useRef<VoteResult[]>([]);
 
-  // Use a ref to store the vote history to persist between renders
-  const voteHistoryRef = useRef<VoteResult[]>([])
-
-  // Use useCallback to memoize the fetchNetworkState function
   const fetchNetworkState = useCallback(async () => {
-    setIsLoading(true)
+    setIsLoading(true);
     try {
-      console.log("Fetching network state...")
-      // Add a cache-busting query parameter
+      console.log("Fetching network state...");
       const response = await fetch(`/api/network?t=${Date.now()}`, {
         cache: "no-store",
         headers: {
@@ -31,116 +29,92 @@ export default function Home() {
           Pragma: "no-cache",
           Expires: "0",
         },
-      })
+      });
 
       if (!response.ok) {
-        throw new Error(`Network response was not ok: ${response.status}`)
+        throw new Error(`Network response was not ok: ${response.status}`);
       }
 
-      const data = await response.json()
-      console.log("Network state fetched:", data)
-      console.log("Vote history length:", data.voteHistory?.length || 0)
+      const data = await response.json();
+      console.log("Network state fetched:", data);
+      console.log("Vote history length:", data.voteHistory?.length || 0);
 
-      // Merge the vote history from the server with our local vote history
       if (data.voteHistory && data.voteHistory.length > 0) {
-        // Get the current vote history
-        const currentVoteHistory = voteHistoryRef.current || []
-
-        // Check if the latest vote from the server is already in our history
-        const latestServerVote = data.voteHistory[0]
+        const currentVoteHistory = voteHistoryRef.current || [];
+        const latestServerVote = data.voteHistory[0];
         const voteExists = currentVoteHistory.some(
           (vote) => vote.timestamp === latestServerVote.timestamp && vote.query === latestServerVote.query,
-        )
+        );
 
         if (!voteExists) {
-          // Add the new vote to our history
-          const updatedVoteHistory = [latestServerVote, ...currentVoteHistory].slice(0, 100)
-          voteHistoryRef.current = updatedVoteHistory
-          console.log("Updated vote history length:", updatedVoteHistory.length)
-
-          // Update the data with our merged vote history
-          data.voteHistory = updatedVoteHistory
+          const updatedVoteHistory = [latestServerVote, ...currentVoteHistory].slice(0, 100);
+          voteHistoryRef.current = updatedVoteHistory;
+          console.log("Updated vote history length:", updatedVoteHistory.length);
+          data.voteHistory = updatedVoteHistory;
         } else {
-          // Use our local vote history if it's longer
           if (currentVoteHistory.length > data.voteHistory.length) {
-            data.voteHistory = currentVoteHistory
+            data.voteHistory = currentVoteHistory;
           } else {
-            // Otherwise update our ref with the server data
-            voteHistoryRef.current = data.voteHistory
+            voteHistoryRef.current = data.voteHistory;
           }
         }
       }
 
-      // Ensure we're setting a new object to trigger re-renders
-      setNetworkState(data)
+      setNetworkState(data);
     } catch (error) {
-      console.error("Failed to fetch network state:", error)
+      console.error("Failed to fetch network state:", error);
       toast({
         title: "Error",
         description: "Failed to fetch network state. Please try again.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }, [toast]) // Add toast as a dependency
+  }, [toast]);
 
-  // Handle broadcast complete - force a refresh
   const handleBroadcastComplete = useCallback(
     (newVote: VoteResult) => {
-      console.log("Broadcast complete, refreshing data...")
+      console.log("Broadcast complete, refreshing data...");
+      const currentVoteHistory = voteHistoryRef.current || [];
+      const updatedVoteHistory = [newVote, ...currentVoteHistory].slice(0, 100);
+      voteHistoryRef.current = updatedVoteHistory;
+      console.log("Updated vote history after broadcast:", updatedVoteHistory.length);
 
-      // Add the new vote to our history
-      const currentVoteHistory = voteHistoryRef.current || []
-      const updatedVoteHistory = [newVote, ...currentVoteHistory].slice(0, 100)
-      voteHistoryRef.current = updatedVoteHistory
-      console.log("Updated vote history after broadcast:", updatedVoteHistory.length)
-
-      // Update the network state with the new vote
       setNetworkState((prevState) => {
-        if (!prevState) return null
-
+        if (!prevState) return null;
         return {
           ...prevState,
           voteHistory: updatedVoteHistory,
-        }
-      })
+        };
+      });
 
-      // Increment the refresh key to force a re-fetch
-      setRefreshKey((prev) => prev + 1)
-
-      // Fetch the network state to update other data
-      fetchNetworkState()
+      setRefreshKey((prev) => prev + 1);
+      fetchNetworkState();
     },
     [fetchNetworkState],
-  )
+  );
 
-  // Effect for initial load and auto-refresh
   useEffect(() => {
-    fetchNetworkState()
-
-    // Set up auto-refresh if enabled
-    let intervalId: NodeJS.Timeout | null = null
-
+    fetchNetworkState();
+    let intervalId: NodeJS.Timeout | null = null;
     if (autoRefresh) {
       intervalId = setInterval(() => {
-        fetchNetworkState()
-      }, 10000) // Refresh every 10 seconds
+        fetchNetworkState();
+      }, 10000);
     }
-
     return () => {
       if (intervalId) {
-        clearInterval(intervalId)
+        clearInterval(intervalId);
       }
-    }
-  }, [autoRefresh, fetchNetworkState, refreshKey]) // Add refreshKey as a dependency
+    };
+  }, [autoRefresh, fetchNetworkState, refreshKey]);
 
-  // Manual refresh function
   const handleManualRefresh = () => {
-    console.log("Manual refresh triggered")
-    setRefreshKey((prev) => prev + 1) // Force a refresh by updating the key
-    fetchNetworkState()
-  }
+    console.log("Manual refresh triggered");
+    setRefreshKey((prev) => prev + 1);
+    fetchNetworkState();
+  };
 
   if (isLoading && !networkState) {
     return (
@@ -150,7 +124,7 @@ export default function Home() {
           <p className="mt-4 text-lg">Loading Verafy v0 Testnet...</p>
         </div>
       </div>
-    )
+    );
   }
 
   if (!networkState) {
@@ -166,11 +140,12 @@ export default function Home() {
           </button>
         </div>
       </div>
-    )
+    );
   }
 
-  // Use the vote history from our ref if available, otherwise use the one from the network state
-  const voteHistory = voteHistoryRef.current.length > 0 ? voteHistoryRef.current : networkState.voteHistory || []
+  const voteHistory = voteHistoryRef.current.length > 0 ? voteHistoryRef.current : networkState.voteHistory || [];
+  const displayedVoteHistory = showAllVotes ? voteHistory : voteHistory.slice(0, 6);
+  const hasMoreVotes = voteHistory.length > 6;
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-950">
@@ -214,7 +189,15 @@ export default function Home() {
         <NetworkStats networkState={networkState} />
 
         <div className="mb-8">
-          <VoteHistory voteHistory={voteHistory} />
+          <VoteHistory voteHistory={displayedVoteHistory} />
+          {hasMoreVotes && (
+            <div
+              className="mt-4 text-center text-purple-600 hover:text-purple-800 cursor-pointer"
+              onClick={() => setShowAllVotes(!showAllVotes)}
+            >
+              {showAllVotes ? "Show Less" : `More (${voteHistory.length - 6})`}
+            </div>
+          )}
         </div>
 
         <div>
@@ -222,6 +205,5 @@ export default function Home() {
         </div>
       </main>
     </div>
-  )
+  );
 }
-
